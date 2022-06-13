@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:vm="http://www.mulesoft.org/schema/mule/vm" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:batch="http://www.mulesoft.org/schema/mule/batch"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/vm http://www.mulesoft.org/schema/mule/vm/current/mule-vm.xsd">
+	<file:config name="File_Config" doc:name="File Config" doc:id="bf40a51a-0dbc-4e86-b0f4-93018b0a5dbe" >
+		<file:connection workingDir="E:\output" />
+	</file:config>
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="0e84cfad-3294-444b-a8f8-42abb203f647" >
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<vm:config name="VM_Config" doc:name="VM Config" doc:id="25c6ae4c-aa18-49a6-b09a-608ac45f2932">
+		<vm:queues >
+			<vm:queue queueName="Error_Queue" queueType="PERSISTENT" />
+		</vm:queues>
+	</vm:config>
+	<flow name="raja-batchonarray" doc:id="505c668c-75cc-4533-928d-1ce88ad46419" >
+		<http:listener doc:name="Listener" doc:id="0178c266-5c8d-4e8d-835f-7d0deb0bb1a1" path="/start" config-ref="HTTP_Listener_config"/>
+		<logger level="INFO" doc:name="Logger" doc:id="e18b7920-2e27-4e72-aa7f-645b75fb87e3" message="payload ==== #[payload]"/>
+		<batch:job jobName="minimumforcompileBatch_Job" doc:id="bd09f310-bd61-4f42-8354-6021d1e65fd8" >
+			<batch:process-records >
+				<batch:step name="Batch_Step" doc:id="d8395e34-922d-416a-a824-a8c97bb58688">
+					<try doc:name="Try" doc:id="a798bbea-e537-421b-9279-06abf339e6af" >
+						<logger level="INFO" doc:name="Logger" doc:id="c16363ad-d850-4e8f-9165-70d709ded975" message="Display half of the given value  #[(payload as Number) / 2.0]" />
+						<set-payload value="#[(payload as Number) / 2.0]" doc:name="Set Payload" doc:id="88fddd4f-d8fb-4c24-b6fc-41722ba367f1" />
+						<error-handler >
+							<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="ea965c94-9440-4471-a465-c0a2201cfbce" >
+								<vm:publish doc:name="Publish" doc:id="2ecb5fe2-10c1-4864-84cc-0a9b6640fdd5" config-ref="VM_Config" queueName="Error_Queue"/>
+							</on-error-continue>
+						</error-handler>
+					</try>
+					<batch:aggregator doc:name="Batch Aggregator" doc:id="9373b0fb-885e-48a3-8ec0-5df3750d0620" size="3">
+						<logger level="INFO" doc:name="Logger" doc:id="00b9d9b7-c419-48a9-ba6d-a37731dc407f" message="#[payload]"/>
+						<ee:transform doc:name="Transform Message" doc:id="82956e76-d1f2-4fde-a3df-114f5b2e8d0a" >
+							<ee:message >
+								<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+   Employee: payload map {
+		data: $ 
+	}
+}]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+						<file:write doc:name="Write" doc:id="9c62eaee-a174-4758-bde1-7a036c46542d" config-ref="File_Config" path="#['Success-File' ++ ( now() as String {format:'yyyy-MM-dd-hh-mm-ss'}  ) ++ '-' ++ (random() * 1000) ++ '.txt']"/>
+					</batch:aggregator>
+				</batch:step>
+			</batch:process-records>
+			<batch:on-complete>
+				<logger level="INFO" doc:name="Logger" doc:id="9b709d80-646d-4d01-9a90-78ce2879d2c1" />
+			</batch:on-complete>
+		</batch:job>
+		<ee:transform doc:name="Transform Message" doc:id="1a67d039-a415-4bb3-9381-6c199a2ad106">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	message : "Batch Completed Successfully"
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+	</flow>
+	<flow name="error-handler-flowFlow" doc:id="497e43e1-db73-453a-a846-9dc23702f3b9" >
+		<vm:listener queueName="Error_Queue" doc:name="Listener" doc:id="94d055e7-c192-4821-8743-dcec4b6cc458" config-ref="VM_Config"/>
+		<file:write doc:name="Write" doc:id="13eaceb1-e9a6-4993-8de8-895aef6ecbe7" config-ref="File_Config" path="#['Failed-Records' ++ ( now() as String {format:'yyyy-MM-dd-hh-mm-ss'}  ) ++ '-' ++ (random() * 1000) ++ '.txt']"/>
+	</flow>
+</mule>
